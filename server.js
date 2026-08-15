@@ -84,6 +84,7 @@ app.post('/api/batch', async (req, res) => {
 
   let sent = 0;
   const failures = [];
+  const samples = [];
 
   for (const order of orders) {
     try {
@@ -98,6 +99,9 @@ app.post('/api/batch', async (req, res) => {
         parsed = JSON.parse(raw);
       } catch {
         parsed = raw;
+      }
+      if (samples.length < 3) {
+        samples.push({ orderId: order.orderId, statusCode: upstream.status, response: parsed });
       }
       if (upstream.ok) sent += 1;
       else failures.push({ orderId: order.orderId, statusCode: upstream.status, response: parsed });
@@ -124,7 +128,15 @@ app.post('/api/batch', async (req, res) => {
   });
   write(LOG_FILE, log.slice(0, 300));
 
-  res.json({ count: orders.length, sent, failed: failures.length, failures: failures.slice(0, 20) });
+  res.json({
+    count: orders.length,
+    sent,
+    failed: failures.length,
+    failures: failures.slice(0, 20),
+    samples,
+    firstId: orders[0]?.orderId || null,
+    lastId: orders[orders.length - 1]?.orderId || null,
+  });
 });
 
 app.get('/api/log', (req, res) => res.json(read(LOG_FILE, []).slice(0, 60)));
