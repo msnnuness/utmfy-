@@ -1,0 +1,15 @@
+{
+  "name": "utmify-bridge",
+  "version": "1.0.0",
+  "description": "Lancamento manual de depositos na Utmify via API de credenciais",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
