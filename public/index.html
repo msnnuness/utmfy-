@@ -157,8 +157,8 @@
         </label>
       </div>
       <div class="row">
-        <label><span class="lbl">quantidade de depósitos</span><input id="qty" inputmode="numeric" placeholder="40" /></label>
-        <label><span class="lbl">valor total (R$)</span><input id="total" inputmode="decimal" placeholder="2.000,00" /></label>
+        <label><span class="lbl">quantidade acumulada no dia</span><input id="qty" inputmode="numeric" placeholder="12" /></label>
+        <label><span class="lbl">valor acumulado no dia (R$)</span><input id="total" inputmode="decimal" placeholder="200,00" /></label>
         <label><span class="lbl">taxa total do gateway (R$)</span><input id="fee" inputmode="decimal" placeholder="0,00" /></label>
       </div>
       <div class="row">
@@ -166,7 +166,11 @@
         <label><span class="lbl">margem aplicada ao líquido (%)</span><input id="margin" inputmode="decimal" placeholder="100" /></label>
       </div>
       <div id="warnBox"></div>
-      <p class="hint">A margem controla o <code>userCommissionInCents</code>. Em 100% o lucro no dashboard é depósito menos mídia; abaixo disso ele se aproxima de margem real.</p>
+      <p class="hint">Informe sempre o <strong>acumulado do relatório</strong>, não a diferença. O app calcula o incremento e envia só o que falta.</p>
+      <div class="actions" style="margin-top:10px">
+        <button type="button" class="ghost tiny" id="resetState">Zerar contador deste dia</button>
+      </div>
+      <p class="hint">Use só se o contador sair de sincronia com a Utmify — ele volta a tratar o dia como não lançado.</p>
     </fieldset>
 
     <div class="actions">
@@ -233,21 +237,29 @@ function split(totalCents, n) {
 // ---- geração do lote --------------------------------------------------------
 
 function buildBatch() {
-  const qty = Math.max(0, parseInt($('qty').value, 10) || 0);
-  const totalC = cents($('total').value);
-  const feeC = cents($('fee').value);
+  const qtyAcc = Math.max(0, parseInt($('qty').value, 10) || 0);
+  const totalAcc = cents($('total').value);
+  const feeAcc = cents($('fee').value);
   const refDate = $('refDate').value;
-  if (!qty || !totalC || !refDate) return { orders: [], qty, totalC, feeC };
 
-  const amounts = split(totalC, qty);
-  const fees = split(feeC, qty);
+  const prev = window.__state || { count: 0, totalCents: 0 };
+  const dQty = qtyAcc - prev.count;
+  const dTotal = totalAcc - prev.totalCents;
+  const dFee = Math.max(feeAcc - (prev.feeCents || 0), 0);
+
+  const base = { orders: [], qtyAcc, totalAcc, prev, dQty, dTotal };
+  if (!qtyAcc || !totalAcc || !refDate) return base;
+  if (dQty <= 0 || dTotal <= 0) return base;
+
+  const amounts = split(dTotal, dQty);
+  const fees = split(dFee, dQty);
   const marginPct = $('margin').value.trim() === '' ? 100 : parseFloat($('margin').value.replace(',', '.'));
   const status = $('status').value;
   const tag = slug($('tag').value);
   const domain = nn($('domain').value) || 'exemplo.com.br';
   const isFtd = $('pName').value === 'Primeiro Depósito';
 
-  // espalha os horários entre 09h e 18h locais — longe da virada de meia-noite em UTC
+  // horários entre 09h e 18h locais — longe da virada de meia-noite em UTC
   const [Y, M, D] = refDate.split('-').map(Number);
   const dayStart = new Date(Y, M - 1, D, 9, 0, 0);
   const dayEnd = new Date(Y, M - 1, D, 18, 0, 0);
@@ -255,14 +267,15 @@ function buildBatch() {
   const span = Math.max(cap - dayStart.getTime(), 60000);
 
   const orders = amounts.map((amount, i) => {
-    const when = new Date(dayStart.getTime() + Math.round((span * i) / Math.max(qty, 1)));
+    const globalIdx = prev.count + i + 1;            // continua de onde parou
+    const when = new Date(dayStart.getTime() + Math.round((span * (globalIdx - 1)) / Math.max(qtyAcc, 1)));
     const stamp = toUtc(when);
     const paid = status !== 'waiting_payment' ? stamp : null;
     const net = Math.max(Math.round((amount - fees[i]) * (marginPct / 100)), 1);
-    const idx = pad(i + 1, 4);
+    const idx = pad(globalIdx, 4);
 
     return {
-      orderId: `${tag}-${refDate}-${isFtd ? 'F' : 'R'}${qty}-${idx}`,
+      orderId: `${tag}-${refDate}-${isFtd ? 'F' : 'R'}-${idx}`,
       platform: nn($('platformValue')?.value) || window.__platform || 'Plataforma',
       paymentMethod: 'pix',
       status,
@@ -301,7 +314,22 @@ function buildBatch() {
     };
   });
 
-  return { orders, qty, totalC, feeC };
+  return { ...base, orders };
+}
+
+// busca o que já foi lançado para tag + data + tipo
+async function loadState() {
+  const tag = slug($('tag').value);
+  const date = $('refDate').value;
+  const type = $('pName').value === 'Primeiro Depósito' ? 'F' : 'R';
+  if (!nn($('tag').value) || !date) { window.__state = { count: 0, totalCents: 0 }; refresh(); return; }
+  try {
+    const qs = new URLSearchParams({ tag, date, type });
+    window.__state = await fetch('/api/state?' + qs).then((r) => r.json());
+  } catch {
+    window.__state = { count: 0, totalCents: 0 };
+  }
+  refresh();
 }
 
 function highlight(obj) {
@@ -314,22 +342,34 @@ function highlight(obj) {
 }
 
 function refresh() {
-  const { orders, qty, totalC } = buildBatch();
+  const { orders, qtyAcc, totalAcc, prev, dQty, dTotal } = buildBatch();
   const led = $('ledger');
 
-  if (!orders.length) {
-    led.innerHTML = '<div><span class="k">aguardando</span><span class="v">quantidade, valor e data</span></div>';
+  if (!qtyAcc || !totalAcc || !$('refDate').value) {
+    led.innerHTML = '<div><span class="k">aguardando</span><span class="v">tag, data e acumulado</span></div>';
+    $('payload').textContent = '';
+  } else if (dQty === 0 && dTotal === 0) {
+    led.innerHTML = `
+      <div><span class="k">acumulado informado</span><span class="v">${qtyAcc} · ${brl(totalAcc)}</span></div>
+      <div><span class="k">já lançado</span><span class="v">${prev.count} · ${brl(prev.totalCents)}</span></div>
+      <div><span class="k">a lançar agora</span><span class="v check">nada novo ✓</span></div>`;
+    $('payload').textContent = '';
+  } else if (dQty <= 0 || dTotal <= 0) {
+    led.innerHTML = `
+      <div><span class="k">acumulado informado</span><span class="v">${qtyAcc} · ${brl(totalAcc)}</span></div>
+      <div><span class="k">já lançado</span><span class="v">${prev.count} · ${brl(prev.totalCents)}</span></div>
+      <div><span class="k">incremento</span><span class="v warn">${dQty} · ${brl(dTotal)}</span></div>
+      <div><span class="k">situação</span><span class="v warn">acumulado menor que o lançado</span></div>`;
     $('payload').textContent = '';
   } else {
     const soma = orders.reduce((a, o) => a + o.commission.totalPriceInCents, 0);
-    const min = Math.min(...orders.map((o) => o.commission.totalPriceInCents));
-    const max = Math.max(...orders.map((o) => o.commission.totalPriceInCents));
-    const okSum = soma === totalC;
+    const okSum = soma === dTotal;
     led.innerHTML = `
-      <div><span class="k">registros</span><span class="v">${qty}</span></div>
-      <div><span class="k">ticket médio</span><span class="v">${brl(Math.round(totalC / qty))}</span></div>
-      <div><span class="k">faixa por registro</span><span class="v">${brl(min)} – ${brl(max)}</span></div>
-      <div><span class="k">soma conferida</span><span class="v ${okSum ? 'check' : 'warn'}">${brl(soma)}${okSum ? ' ✓' : ' ≠ ' + brl(totalC)}</span></div>
+      <div><span class="k">acumulado informado</span><span class="v">${qtyAcc} · ${brl(totalAcc)}</span></div>
+      <div><span class="k">já lançado</span><span class="v">${prev.count} · ${brl(prev.totalCents)}</span></div>
+      <div><span class="k">a lançar agora</span><span class="v check">${dQty} · ${brl(dTotal)}</span></div>
+      <div><span class="k">ticket do incremento</span><span class="v">${brl(Math.round(dTotal / dQty))}</span></div>
+      <div><span class="k">soma conferida</span><span class="v ${okSum ? 'check' : 'warn'}">${brl(soma)}${okSum ? ' ✓' : ' ≠ ' + brl(dTotal)}</span></div>
       <div><span class="k">primeiro id</span><span class="v">${orders[0].orderId}</span></div>
       <div><span class="k">último id</span><span class="v">${orders[orders.length-1].orderId}</span></div>`;
     $('payload').innerHTML = highlight(orders[0]);
@@ -343,7 +383,10 @@ function refresh() {
     if (days > 7) warn.innerHTML = '<div class="alert">Esta data tem mais de 7 dias. A API recusa pedidos fora dessa janela — só reembolso e chargeback vão até 45 dias.</div>';
     else if (days < -0.5) warn.innerHTML = '<div class="alert">Data no futuro. Confira antes de lançar.</div>';
   }
-  if (qty > 500) warn.innerHTML += '<div class="alert err">Máximo de 500 registros por lote.</div>';
+  if (dQty < 0 || dTotal < 0) {
+    warn.innerHTML += '<div class="alert err">O acumulado informado é menor do que já foi lançado. ' +
+      'Se o relatório foi corrigido para baixo, zere o contador deste dia e relance o acumulado inteiro.</div>';
+  }
 }
 
 // ---- presets ---------------------------------------------------------------
@@ -365,7 +408,7 @@ async function loadPresets() {
       }
       ['tag','utm_source','utm_campaign','utm_medium','utm_content','utm_term']
         .forEach((k) => { $(k).value = p[k] || ''; });
-      refresh();
+      loadState();
     };
     box.appendChild(chip);
   });
@@ -390,14 +433,14 @@ async function loadLog() {
 // ---- envio -----------------------------------------------------------------
 
 async function send() {
-  const { orders, qty, totalC } = buildBatch();
+  const { orders, qtyAcc, totalAcc, prev, dQty, dTotal } = buildBatch();
   const box = $('result');
 
   const missing = [];
   if (!$('refDate').value) missing.push('data');
   if (!nn($('tag').value)) missing.push('tag / afiliado');
-  if (!qty) missing.push('quantidade');
-  if (!totalC) missing.push('valor total');
+  if (!qtyAcc) missing.push('quantidade acumulada');
+  if (!totalAcc) missing.push('valor acumulado');
   if (!nn($('utm_campaign').value)) missing.push('utm_campaign');
   if (!nn($('domain').value)) missing.push('domínio dos e-mails');
   if (missing.length) {
@@ -405,25 +448,40 @@ async function send() {
     return;
   }
 
+  if (dQty === 0 && dTotal === 0) {
+    box.innerHTML = '<div class="alert ok">O acumulado informado é igual ao que já foi lançado. Nada a enviar.</div>';
+    return;
+  }
+  if (dQty <= 0 || dTotal <= 0) {
+    box.innerHTML = `<div class="alert err">O incremento seria de ${dQty} registros e ${brl(dTotal)}. ` +
+      'Só dá para adicionar. Se o relatório caiu, zere o contador deste dia e relance o acumulado inteiro.</div>';
+    return;
+  }
   if (orders.some((o) => o.commission.totalPriceInCents < 1)) {
-    box.innerHTML = '<div class="alert err">O valor total dividido pela quantidade dá menos de um centavo por registro. ' +
-      'Reduza a quantidade ou confira o total.</div>';
+    box.innerHTML = '<div class="alert err">O incremento dividido pela quantidade dá menos de um centavo por registro.</div>';
     return;
   }
 
   if (!$('isTest').checked) {
-    const ok = confirm(`Lançar ${qty} registros somando ${brl(totalC)} de verdade na Utmify?`);
+    const ok = confirm(`Adicionar ${dQty} registros somando ${brl(dTotal)}?\n\n` +
+      `Já lançado hoje: ${prev.count} · ${brl(prev.totalCents)}\n` +
+      `Ficará em: ${qtyAcc} · ${brl(totalAcc)}`);
     if (!ok) return;
   }
 
   $('send').disabled = true;
-  box.innerHTML = `<div class="alert">Enviando ${qty} registros… isso leva cerca de ${Math.ceil(qty * 0.4)}s.</div>`;
+  box.innerHTML = `<div class="alert">Enviando ${dQty} registros… cerca de ${Math.ceil(dQty * 0.4)}s.</div>`;
 
   try {
     const res = await fetch('/api/batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orders, label: $('utm_campaign').value }),
+      body: JSON.stringify({
+        orders,
+        tag: slug($('tag').value),
+        date: $('refDate').value,
+        type: $('pName').value === 'Primeiro Depósito' ? 'F' : 'R',
+      }),
     }).then((r) => r.json());
 
     if (res.error) {
@@ -442,6 +500,8 @@ async function send() {
       box.innerHTML = head +
         `<div style="margin-top:10px"><strong>Resposta da API (amostra):</strong>${samples}</div>` +
         `<div style="margin-top:8px">IDs: <code>${res.firstId}</code> … <code>${res.lastId}</code></div></div>`;
+      if (res.state) window.__state = res.state;
+      refresh();
     }
     loadLog();
   } catch (err) {
@@ -460,10 +520,30 @@ WATCH.forEach((id) => {
   el.addEventListener('change', refresh);
 });
 
+['tag', 'refDate', 'pName'].forEach((id) => {
+  $(id).addEventListener('change', loadState);
+  $(id).addEventListener('blur', loadState);
+});
+
 $('send').onclick = send;
 $('clear').onclick = () => {
   ['qty','total','fee'].forEach((k) => { $(k).value = ''; });
   $('result').innerHTML = '';
+  refresh();
+};
+
+$('resetState').onclick = async () => {
+  if (!nn($('tag').value) || !$('refDate').value) return;
+  const tag = slug($('tag').value);
+  const date = $('refDate').value;
+  if (!confirm(`Zerar o contador de ${tag} em ${date}?\n\n` +
+    'Isso não apaga nada na Utmify — só faz o app tratar o dia como não lançado. ' +
+    'Os próximos envios voltam a começar do índice 0001 e vão sobrescrever os registros existentes.')) return;
+  window.__state = await fetch('/api/state/reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tag, date, type: $('pName').value === 'Primeiro Depósito' ? 'F' : 'R', count: 0, totalCents: 0 }),
+  }).then((r) => r.json());
+  $('result').innerHTML = '<div class="alert">Contador zerado para este dia.</div>';
   refresh();
 };
 
@@ -492,9 +572,10 @@ $('savePreset').onclick = async () => {
   if (cfg.hasToken) { badge.textContent = 'token configurado'; badge.dataset.state = 'ready'; }
   else { badge.textContent = 'sem UTMIFY_TOKEN'; badge.dataset.state = 'missing'; }
 
+  window.__state = { count: 0, totalCents: 0 };
   loadPresets();
   loadLog();
-  refresh();
+  await loadState();
 })();
 </script>
 </body>
