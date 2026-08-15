@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lançamento manual — Utmify</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:   #E4E7ED;
+    --surface: #FFFFFF;
+    --ink:     #14161C;
+    --muted:   #5A6373;
+    --rule:    #C4C9D3;
+    --accent:  #1F3A8A;
+    --test:    #9A5B06;
+    --error:   #9F1239;
+    --ok:      #14683F;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  /* ---- shell ---- */
+
+  header {
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+    padding: 18px 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+
+  .tagline { color: var(--muted); font-size: 13px; margin: 0; }
+
+  .badge {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .badge[data-state="ready"] { color: var(--ok); border-color: var(--ok); }
+  .badge[data-state="missing"] { color: var(--error); border-color: var(--error); }
+
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+    gap: 1px;
+    background: var(--rule);
+    min-height: calc(100vh - 62px);
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+    aside { position: static !important; }
+  }
+
+  .pane { background: var(--paper); padding: 24px; }
+  aside { background: var(--surface); position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; }
+
+  /* ---- fieldsets mirror the payload structure ---- */
+
+  fieldset {
+    border: none;
+    border-top: 1px solid var(--rule);
+    margin: 0 0 26px;
+    padding: 14px 0 0;
+  }
+  fieldset:first-of-type { border-top: none; padding-top: 0; }
+
+  legend {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 10px 0 0;
+  }
+
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 12px; }
+
+  label { display: block; }
+
+  .lbl {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  input, select {
+    width: 100%;
+    padding: 8px 9px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    background: var(--surface);
+    color: var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .hint { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+
+  /* ---- buttons ---- */
+
+  button {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--surface);
+    padding: 9px 16px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
+  button.ghost:hover { border-color: var(--ink); }
+  button.tiny { padding: 5px 9px; font-size: 10.5px; }
+  button[disabled] { opacity: .45; cursor: not-allowed; }
+
+  .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+
+  .toggle { display: flex; align-items: center; gap: 7px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.07em; }
+  .toggle input { width: auto; }
+
+  /* ---- payload preview (signature) ---- */
+
+  .pane-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+
+  pre#payload {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.65;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 14px;
+    margin: 0;
+    overflow-x: auto;
+    white-space: pre;
+    tab-size: 2;
+  }
+  .k { color: var(--accent); }
+  .s { color: #0F6B4F; }
+  .n { color: #8A4B00; }
+  .z { color: var(--muted); }
+
+  /* ---- alerts & log ---- */
+
+  .alert {
+    border-left: 3px solid var(--test);
+    background: var(--surface);
+    padding: 10px 12px;
+    font-size: 13px;
+    margin: 12px 0;
+    border-radius: 0 3px 3px 0;
+  }
+  .alert.err { border-left-color: var(--error); }
+  .alert.ok  { border-left-color: var(--ok); }
+
+  table { width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+  th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 10px;
+    padding: 0 8px 6px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  td.st-ok { color: var(--ok); }
+  td.st-err { color: var(--error); }
+
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    border-radius: 3px;
+    padding: 5px 9px;
+    cursor: pointer;
+    display: inline-flex;
+    gap: 7px;
+    align-items: center;
+  }
+  .chip:hover { border-color: var(--accent); }
+  .chip span { color: var(--muted); }
+  .empty { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Utmify · lançamento manual</h1>
+  <p class="tagline">Um depósito por vez, direto na API de credenciais.</p>
+  <span class="badge" id="tokenBadge">verificando token…</span>
+</header>
+
+<main>
+  <section class="pane">
+
+    <fieldset>
+      <legend>Origem do tráfego</legend>
+      <div class="presets" id="presetList"><span class="empty">Nenhum preset salvo ainda.</span></div>
+      <div class="row">
+        <label><span class="lbl">utm_source</span><input id="utm_source" value="FB" /></label>
+        <label><span class="lbl">utm_term (posicionamento)</span><input id="utm_term" placeholder="Instagram_Feed" /></label>
+      </div>
+      <div class="row" style="grid-template-columns:1fr">
+        <label><span class="lbl">utm_campaign — nome|id</span><input id="utm_campaign" placeholder="CAMPANHA_SLOT|1203..." /></label>
+      </div>
+      <div class="row" style="grid-template-columns:1fr">
+        <label><span class="lbl">utm_medium — conjunto nome|id</span><input id="utm_medium" placeholder="CONJUNTO_BR|4980..." /></label>
+      </div>
+      <div class="row" style="grid-template-columns:1fr">
+        <label><span class="lbl">utm_content — anúncio nome|id</span><input id="utm_content" placeholder="CRIATIVO_03|5043..." /></label>
+      </div>
+      <div class="actions">
+        <input id="presetLabel" placeholder="nome do preset" style="max-width:220px" />
+        <button type="button" class="ghost tiny" id="savePreset">Salvar preset</button>
+      </div>
+      <p class="hint">Cole nome e ID exatamente como aparecem no gerenciador, separados por <code>|</code>. Sem esses IDs a Utmify não casa o depósito com o anúncio.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Transação</legend>
+      <div class="row">
+        <label><span class="lbl">orderId</span><input id="orderId" /></label>
+        <label><span class="lbl">platform</span><input id="platform" placeholder="NomeDaPlataforma" /></label>
+      </div>
+      <div class="row">
+        <label><span class="lbl">status</span>
+          <select id="status">
+            <option value="waiting_payment">waiting_payment — pix gerado</option>
+            <option value="paid" selected>paid — depósito confirmado</option>
+            <option value="refused">refused</option>
+            <option value="refunded">refunded</option>
+            <option value="chargedback">chargedback</option>
+          </select>
+        </label>
+        <label><span class="lbl">paymentMethod</span>
+          <select id="paymentMethod">
+            <option value="pix" selected>pix</option>
+            <option value="credit_card">credit_card</option>
+            <option value="boleto">boleto</option>
+            <option value="paypal">paypal</option>
+            <option value="free_price">free_price</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label><span class="lbl">criado em (seu horário)</span><input type="datetime-local" id="createdAt" /></label>
+        <label><span class="lbl">aprovado em (seu horário)</span><input type="datetime-local" id="approvedDate" /></label>
+      </div>
+      <div id="windowWarn"></div>
+      <p class="hint">Os horários são convertidos para UTC no envio, como a API exige. Para reenviar e atualizar um status, repita o mesmo <code>orderId</code> e o mesmo <code>createdAt</code>.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Jogador</legend>
+      <div class="row">
+        <label><span class="lbl">nome</span><input id="cName" /></label>
+        <label><span class="lbl">e-mail</span><input id="cEmail" type="email" /></label>
+      </div>
+      <div class="row">
+        <label><span class="lbl">telefone</span><input id="cPhone" placeholder="48991234567" /></label>
+        <label><span class="lbl">CPF</span><input id="cDoc" /></label>
+        <label><span class="lbl">IP</span><input id="cIp" placeholder="187.4.x.x" /></label>
+      </div>
+      <p class="hint">O IP é opcional, mas melhora o casamento do clique com a venda. Se você já captura ele no evento de CAPI, use o mesmo valor.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Valores</legend>
+      <div class="row">
+        <label><span class="lbl">tipo</span>
+          <select id="pName">
+            <option value="Primeiro Depósito">Primeiro Depósito (FTD)</option>
+            <option value="Redepósito">Redepósito</option>
+          </select>
+        </label>
+        <label><span class="lbl">valor depositado (R$)</span><input id="amount" inputmode="decimal" placeholder="50,00" /></label>
+      </div>
+      <div class="row">
+        <label><span class="lbl">taxa do gateway (R$)</span><input id="fee" inputmode="decimal" placeholder="0,00" /></label>
+        <label><span class="lbl">líquido pra você (R$)</span><input id="net" inputmode="decimal" /></label>
+      </div>
+      <p class="hint">O líquido não pode ser zero. Se quiser que o lucro no dashboard reflita margem real em vez de volume depositado, coloque aqui o depósito multiplicado pela sua margem estimada.</p>
+    </fieldset>
+
+    <div class="actions">
+      <label class="toggle"><input type="checkbox" id="isTest" checked /> modo teste</label>
+      <button type="button" id="send">Enviar para a Utmify</button>
+      <button type="button" class="ghost" id="clear">Limpar</button>
+    </div>
+    <div id="result"></div>
+
+    <fieldset style="margin-top:30px">
+      <legend>Últimos envios</legend>
+      <table>
+        <thead><tr><th>quando</th><th>orderId</th><th>valor</th><th>resultado</th></tr></thead>
+        <tbody id="logBody"><tr><td colspan="4" class="empty">Nada enviado ainda.</td></tr></tbody>
+      </table>
+    </fieldset>
+
+  </section>
+
+  <aside class="pane">
+    <p class="pane-title">Payload que será enviado</p>
+    <pre id="payload"></pre>
+    <p class="hint">Este é o corpo exato do POST. Quando a plataforma liberar postback, é esse mesmo objeto que o backend vai montar sozinho — dá para copiar como referência do mapeamento.</p>
+  </aside>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+const FIELDS = ['utm_source','utm_campaign','utm_medium','utm_content','utm_term','orderId','platform',
+  'status','paymentMethod','createdAt','approvedDate','cName','cEmail','cPhone','cDoc','cIp',
+  'pName','amount','fee','net','isTest'];
+
+// ---- helpers ---------------------------------------------------------------
+
+function cents(v) {
+  if (v === '' || v === null || v === undefined) return 0;
+  const n = parseFloat(String(v).replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+}
+
+function toUtc(local) {
+  if (!local) return null;
+  const d = new Date(local);
+  if (isNaN(d)) return null;
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ` +
+         `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+
+function nowLocal(offsetMin = 0) {
+  const d = new Date(Date.now() - offsetMin * 60000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function nn(v) { const s = (v ?? '').toString().trim(); return s === '' ? null : s; }
+
+function uuid() {
+  return (crypto.randomUUID ? crypto.randomUUID() : 'ord-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+}
+
+// ---- payload ---------------------------------------------------------------
+
+function buildPayload() {
+  const total = cents($('amount').value);
+  const fee = cents($('fee').value);
+  const net = $('net').value.trim() === '' ? Math.max(total - fee, 1) : cents($('net').value);
+  const status = $('status').value;
+
+  return {
+    orderId: nn($('orderId').value) || '(gerado no envio)',
+    platform: nn($('platform').value),
+    paymentMethod: $('paymentMethod').value,
+    status,
+    createdAt: toUtc($('createdAt').value),
+    approvedDate: status === 'paid' || status === 'refunded' || status === 'chargedback'
+      ? toUtc($('approvedDate').value) : null,
+    refundedAt: status === 'refunded' || status === 'chargedback' ? toUtc($('approvedDate').value) : null,
+    customer: {
+      name: nn($('cName').value),
+      email: nn($('cEmail').value),
+      phone: nn($('cPhone').value),
+      document: nn($('cDoc').value),
+      country: 'BR',
+      ip: nn($('cIp').value),
+    },
+    products: [{
+      id: $('pName').value === 'Primeiro Depósito' ? 'ftd' : 'redeposito',
+      name: $('pName').value,
+      planId: null,
+      planName: null,
+      quantity: 1,
+      priceInCents: total,
+    }],
+    trackingParameters: {
+      src: null,
+      sck: null,
+      utm_source: nn($('utm_source').value),
+      utm_campaign: nn($('utm_campaign').value),
+      utm_medium: nn($('utm_medium').value),
+      utm_content: nn($('utm_content').value),
+      utm_term: nn($('utm_term').value),
+    },
+    commission: {
+      totalPriceInCents: total,
+      gatewayFeeInCents: fee,
+      userCommissionInCents: net,
+    },
+    isTest: $('isTest').checked,
+  };
+}
+
+function highlight(obj) {
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  return esc(JSON.stringify(obj, null, 2))
+    .replace(/"([^"]+)":/g, '<span class="k">"$1"</span>:')
+    .replace(/: "([^"]*)"/g, ': <span class="s">"$1"</span>')
+    .replace(/: (-?\d+(\.\d+)?)/g, ': <span class="n">$1</span>')
+    .replace(/: (null|true|false)/g, ': <span class="z">$1</span>');
+}
+
+function refresh() {
+  $('payload').innerHTML = highlight(buildPayload());
+
+  const created = $('createdAt').value;
+  const warn = $('windowWarn');
+  warn.innerHTML = '';
+  if (created) {
+    const days = (Date.now() - new Date(created).getTime()) / 86400000;
+    if (days > 7) {
+      warn.innerHTML = '<div class="alert">Este pedido tem mais de 7 dias. A API só aceita pedidos nessa janela ' +
+        '(45 dias apenas para reembolso e chargeback), então o envio deve ser recusado.</div>';
+    }
+  }
+}
+
+// ---- presets ---------------------------------------------------------------
+
+async function loadPresets() {
+  const list = await fetch('/api/presets').then((r) => r.json());
+  const box = $('presetList');
+  if (!list.length) { box.innerHTML = '<span class="empty">Nenhum preset salvo ainda.</span>'; return; }
+  box.innerHTML = '';
+  list.forEach((p) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.innerHTML = `${p.label} <span aria-hidden="true">×</span>`;
+    chip.onclick = (e) => {
+      const onX = e.offsetX > chip.clientWidth - 22;
+      if (onX) {
+        fetch('/api/presets/' + p.id, { method: 'DELETE' }).then(loadPresets);
+        return;
+      }
+      ['utm_source','utm_campaign','utm_medium','utm_content','utm_term']
+        .forEach((k) => { $(k).value = p[k] || ''; });
+      refresh();
+    };
+    box.appendChild(chip);
+  });
+}
+
+// ---- log -------------------------------------------------------------------
+
+async function loadLog() {
+  const rows = await fetch('/api/log').then((r) => r.json());
+  const body = $('logBody');
+  if (!rows.length) { body.innerHTML = '<tr><td colspan="4" class="empty">Nada enviado ainda.</td></tr>'; return; }
+  body.innerHTML = rows.map((r) => {
+    const when = new Date(r.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const val = r.totalPriceInCents != null ? 'R$ ' + (r.totalPriceInCents / 100).toFixed(2).replace('.', ',') : '—';
+    const label = r.ok ? (r.isTest ? 'validado (teste)' : 'salvo') : 'erro ' + r.statusCode;
+    return `<tr><td>${when}</td><td>${(r.orderId || '').slice(0, 14)}</td><td>${val}</td>` +
+           `<td class="${r.ok ? 'st-ok' : 'st-err'}">${label}</td></tr>`;
+  }).join('');
+}
+
+// ---- send ------------------------------------------------------------------
+
+async function send() {
+  if (!$('orderId').value.trim()) $('orderId').value = uuid();
+  const payload = buildPayload();
+  const box = $('result');
+
+  const missing = [];
+  if (!payload.platform) missing.push('platform');
+  if (!payload.customer.name) missing.push('nome');
+  if (!payload.customer.email) missing.push('e-mail');
+  if (!payload.createdAt) missing.push('data de criação');
+  if (!payload.commission.totalPriceInCents) missing.push('valor');
+  if (missing.length) {
+    box.innerHTML = `<div class="alert err">Faltam campos obrigatórios: ${missing.join(', ')}.</div>`;
+    return;
+  }
+
+  $('send').disabled = true;
+  box.innerHTML = '<div class="alert">Enviando…</div>';
+
+  try {
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then((r) => r.json());
+
+    box.innerHTML = res.ok
+      ? `<div class="alert ok">${payload.isTest
+          ? 'Payload validado. Nada foi salvo porque o modo teste está ligado — desligue para lançar de verdade.'
+          : 'Pedido salvo na Utmify. Confira na aba Resumo do dashboard.'}</div>`
+      : `<div class="alert err">A Utmify recusou o envio (HTTP ${res.statusCode || '—'}):<br>` +
+        `<code>${JSON.stringify(res.response)}</code></div>`;
+    loadLog();
+  } catch (err) {
+    box.innerHTML = `<div class="alert err">Falha na requisição: ${err.message}</div>`;
+  } finally {
+    $('send').disabled = false;
+  }
+}
+
+// ---- init ------------------------------------------------------------------
+
+FIELDS.forEach((id) => {
+  const el = $(id);
+  if (el) el.addEventListener('input', refresh);
+  if (el) el.addEventListener('change', refresh);
+});
+
+$('amount').addEventListener('input', () => {
+  const t = cents($('amount').value), f = cents($('fee').value);
+  $('net').value = ((Math.max(t - f, 0)) / 100).toFixed(2).replace('.', ',');
+  refresh();
+});
+$('fee').addEventListener('input', () => {
+  const t = cents($('amount').value), f = cents($('fee').value);
+  $('net').value = ((Math.max(t - f, 0)) / 100).toFixed(2).replace('.', ',');
+  refresh();
+});
+
+$('send').onclick = send;
+$('clear').onclick = () => {
+  ['orderId','cName','cEmail','cPhone','cDoc','cIp','amount','fee','net'].forEach((k) => { $(k).value = ''; });
+  $('createdAt').value = nowLocal();
+  $('approvedDate').value = nowLocal();
+  $('result').innerHTML = '';
+  refresh();
+};
+
+$('savePreset').onclick = async () => {
+  const body = {
+    label: $('presetLabel').value,
+    utm_source: $('utm_source').value,
+    utm_campaign: $('utm_campaign').value,
+    utm_medium: $('utm_medium').value,
+    utm_content: $('utm_content').value,
+    utm_term: $('utm_term').value,
+  };
+  const res = await fetch('/api/presets', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then((r) => r.json());
+  if (res.error) { $('result').innerHTML = `<div class="alert err">${res.error}</div>`; return; }
+  $('presetLabel').value = '';
+  loadPresets();
+};
+
+(async function init() {
+  $('createdAt').value = nowLocal();
+  $('approvedDate').value = nowLocal();
+  $('orderId').value = uuid();
+
+  const cfg = await fetch('/api/config').then((r) => r.json());
+  const badge = $('tokenBadge');
+  if (cfg.hasToken) { badge.textContent = 'token configurado'; badge.dataset.state = 'ready'; }
+  else { badge.textContent = 'sem UTMIFY_TOKEN'; badge.dataset.state = 'missing'; }
+  if (cfg.platform) $('platform').value = cfg.platform;
+
+  loadPresets();
+  loadLog();
+  refresh();
+})();
+</script>
+</body>
+</html>
