@@ -247,10 +247,10 @@ function buildBatch() {
   const domain = nn($('domain').value) || 'exemplo.com.br';
   const isFtd = $('pName').value === 'Primeiro Depósito';
 
-  // espalha os horários entre 08h e 23h do dia de referência, sem passar do agora
+  // espalha os horários entre 09h e 18h locais — longe da virada de meia-noite em UTC
   const [Y, M, D] = refDate.split('-').map(Number);
-  const dayStart = new Date(Y, M - 1, D, 8, 0, 0);
-  const dayEnd = new Date(Y, M - 1, D, 23, 0, 0);
+  const dayStart = new Date(Y, M - 1, D, 9, 0, 0);
+  const dayEnd = new Date(Y, M - 1, D, 18, 0, 0);
   const cap = Math.min(dayEnd.getTime(), Date.now() - 60000);
   const span = Math.max(cap - dayStart.getTime(), 60000);
 
@@ -259,10 +259,10 @@ function buildBatch() {
     const stamp = toUtc(when);
     const paid = status !== 'waiting_payment' ? stamp : null;
     const net = Math.max(Math.round((amount - fees[i]) * (marginPct / 100)), 1);
-    const idx = pad(i + 1, String(qty).length < 3 ? 3 : String(qty).length);
+    const idx = pad(i + 1, 4);
 
     return {
-      orderId: `${tag}-${refDate}-${idx}`,
+      orderId: `${tag}-${refDate}-${isFtd ? 'F' : 'R'}${qty}-${idx}`,
       platform: nn($('platformValue')?.value) || window.__platform || 'Plataforma',
       paymentMethod: 'pix',
       status,
@@ -395,6 +395,7 @@ async function send() {
 
   const missing = [];
   if (!$('refDate').value) missing.push('data');
+  if (!nn($('tag').value)) missing.push('tag / afiliado');
   if (!qty) missing.push('quantidade');
   if (!totalC) missing.push('valor total');
   if (!nn($('utm_campaign').value)) missing.push('utm_campaign');
@@ -427,15 +428,20 @@ async function send() {
 
     if (res.error) {
       box.innerHTML = `<div class="alert err">${res.error}</div>`;
-    } else if (res.failed === 0) {
-      box.innerHTML = `<div class="alert ok">${res.sent} registros ${$('isTest').checked
-        ? 'validados. Nada foi salvo — desligue o modo teste para lançar de verdade.'
-        : 'salvos na Utmify. Confira na aba Resumo do dashboard.'}</div>`;
     } else {
-      const first = res.failures[0];
-      box.innerHTML = `<div class="alert err">${res.sent} enviados, ${res.failed} recusados.<br>` +
-        `Primeiro erro (${first.orderId}): <code>${JSON.stringify(first.response)}</code><br>` +
-        `Corrija e reenvie — os IDs são fixos, então reenviar atualiza em vez de duplicar.</div>`;
+      const samples = (res.samples || []).map((s) =>
+        `<div style="margin-top:6px"><code>${s.orderId}</code> → HTTP ${s.statusCode}<br>` +
+        `<code>${JSON.stringify(s.response).slice(0, 400)}</code></div>`).join('');
+
+      const head = res.failed === 0
+        ? `<div class="alert ok">${res.sent} registros ${$('isTest').checked
+            ? 'validados. Nada foi salvo — desligue o modo teste para lançar de verdade.'
+            : 'aceitos pela API.'}`
+        : `<div class="alert err">${res.sent} aceitos, ${res.failed} recusados.`;
+
+      box.innerHTML = head +
+        `<div style="margin-top:10px"><strong>Resposta da API (amostra):</strong>${samples}</div>` +
+        `<div style="margin-top:8px">IDs: <code>${res.firstId}</code> … <code>${res.lastId}</code></div></div>`;
     }
     loadLog();
   } catch (err) {
