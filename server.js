@@ -16,6 +16,7 @@ const DELAY_MS = 150;
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const PRESETS_FILE = path.join(DATA_DIR, 'presets.json');
 const LOG_FILE = path.join(DATA_DIR, 'log.json');
+const LEDGER_FILE = path.join(DATA_DIR, 'ledger.json');
 
 function read(file, fallback) {
   try {
@@ -30,10 +31,9 @@ function write(file, data) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const key = (tag, date, type) => `${tag}|${date}|${type}`;
 
 app.use(express.static(path.join(__dirname, 'public')));
-
-// --- config -----------------------------------------------------------------
 
 app.get('/api/config', (req, res) => {
   res.json({ hasToken: Boolean(TOKEN), platform: PLATFORM });
@@ -67,22 +67,42 @@ app.delete('/api/presets/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// --- envio em lote ----------------------------------------------------------
+// --- estado do dia (o que já foi lançado) -----------------------------------
+
+app.get('/api/state', (req, res) => {
+  const { tag, date, type } = req.query;
+  const ledger = read(LEDGER_FILE, {});
+  const entry = ledger[key(tag, date, type)] || { count: 0, totalCents: 0, updatedAt: null };
+  res.json(entry);
+});
+
+app.post('/api/state/reset', (req, res) => {
+  const { tag, date, type, count, totalCents } = req.body;
+  const ledger = read(LEDGER_FILE, {});
+  const k = key(tag, date, type);
+  if (Number(count) === 0 && Number(totalCents) === 0) delete ledger[k];
+  else ledger[k] = {
+    count: Number(count) || 0,
+    totalCents: Number(totalCents) || 0,
+    updatedAt: new Date().toISOString(),
+  };
+  write(LEDGER_FILE, ledger);
+  res.json(ledger[k] || { count: 0, totalCents: 0, updatedAt: null });
+});
+
+// --- envio do incremento ----------------------------------------------------
 
 app.post('/api/batch', async (req, res) => {
   if (!TOKEN) {
-    return res.status(500).json({
-      error: 'UTMIFY_TOKEN não está definido nas variáveis de ambiente do serviço.',
-    });
+    return res.status(500).json({ error: 'UTMIFY_TOKEN não está definido nas variáveis de ambiente.' });
   }
 
   const orders = Array.isArray(req.body.orders) ? req.body.orders : [];
-  if (!orders.length) return res.status(400).json({ error: 'Nenhum registro recebido.' });
-  if (orders.length > MAX_BATCH) {
-    return res.status(400).json({ error: `Limite de ${MAX_BATCH} registros por lote.` });
-  }
+  if (!orders.length) return res.status(400).json({ error: 'Nenhum registro para enviar.' });
+  if (orders.length > MAX_BATCH) return res.status(400).json({ error: `Limite de ${MAX_BATCH} por envio.` });
 
   let sent = 0;
+  let sentCents = 0;
   const failures = [];
   const samples = [];
 
@@ -95,35 +115,50 @@ app.post('/api/batch', async (req, res) => {
       });
       const raw = await upstream.text();
       let parsed;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = raw;
-      }
+      try { parsed = JSON.parse(raw); } catch { parsed = raw; }
+
       if (samples.length < 3) {
         samples.push({ orderId: order.orderId, statusCode: upstream.status, response: parsed });
       }
-      if (upstream.ok) sent += 1;
-      else failures.push({ orderId: order.orderId, statusCode: upstream.status, response: parsed });
+      if (upstream.ok) {
+        sent += 1;
+        sentCents += order?.commission?.totalPriceInCents || 0;
+      } else {
+        failures.push({ orderId: order.orderId, statusCode: upstream.status, response: parsed });
+      }
     } catch (err) {
       failures.push({ orderId: order.orderId, statusCode: 0, response: err.message });
     }
     await sleep(DELAY_MS);
   }
 
-  const first = orders[0] || {};
-  const totalCents = orders.reduce((a, o) => a + (o?.commission?.totalPriceInCents || 0), 0);
+  // o contador só avança com o que a API aceitou, e nunca em modo teste
+  const isTest = Boolean(orders[0]?.isTest);
+  let state = null;
+  if (!isTest && sent > 0) {
+    const ledger = read(LEDGER_FILE, {});
+    const k = key(req.body.tag, req.body.date, req.body.type);
+    const prev = ledger[k] || { count: 0, totalCents: 0 };
+    ledger[k] = {
+      count: prev.count + sent,
+      totalCents: prev.totalCents + sentCents,
+      updatedAt: new Date().toISOString(),
+    };
+    write(LEDGER_FILE, ledger);
+    state = ledger[k];
+  }
 
   const log = read(LOG_FILE, []);
   log.unshift({
     at: new Date().toISOString(),
-    batchLabel: req.body.label || null,
-    isTest: Boolean(first.isTest),
+    tag: req.body.tag || null,
+    date: req.body.date || null,
+    isTest,
     count: orders.length,
     sent,
     failed: failures.length,
-    totalCents,
-    utm_campaign: first?.trackingParameters?.utm_campaign ?? null,
+    totalCents: sentCents,
+    utm_campaign: orders[0]?.trackingParameters?.utm_campaign ?? null,
     sampleErrors: failures.slice(0, 3),
   });
   write(LOG_FILE, log.slice(0, 300));
@@ -134,6 +169,7 @@ app.post('/api/batch', async (req, res) => {
     failed: failures.length,
     failures: failures.slice(0, 20),
     samples,
+    state,
     firstId: orders[0]?.orderId || null,
     lastId: orders[orders.length - 1]?.orderId || null,
   });
